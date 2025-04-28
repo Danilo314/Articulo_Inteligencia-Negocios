@@ -1,37 +1,65 @@
-name: Deploy to Render
+name: Deploy Dash App
 
 on:
   push:
-    branches: [ "main" ]  # Se activa con pushes a la rama main
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4  # Descarga tu código
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"  # Usa la versión de Python de tu proyecto
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt  # Instala dependencias
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install dash pandas numpy plotly
 
-      - name: Trigger Render Deploy
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}  # API key de Render (secreto)
-        run: |
-          # Obtiene el ID de tu servicio en Render
-          SERVICE_ID=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-          "https://api.render.com/v1/services" | \
-          jq -r '.[] | select(.service.name=="dash-sales-dashboard").service.id')
+    - name: Run Dash app
+      run: |
+        nohup python app.py &
+        sleep 10
+        echo "Dash app should be running!"
 
-          # Dispara el despliegue
-          curl -s -X POST \
-            -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{}' \
-            "https://api.render.com/v1/services/$SERVICE_ID/deploys"
+    - name: Create HTML redirect file
+      run: |
+        rm -f index.html
+        echo '<!DOCTYPE html>
+        <html>
+        <head>
+          <title>Redirigiendo al Dashboard de Ventas</title>
+          <meta http-equiv="refresh" content="0; url=http://localhost:8050/" />
+          <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+            .spinner { margin: 40px auto; width: 50px; height: 50px; border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          </style>
+        </head>
+        <body>
+          <h1>Redirigiendo al Dashboard de Ventas...</h1>
+          <div class="spinner"></div>
+          <p>Si no eres redirigido automáticamente, <a href="http://localhost:8050/">haz clic aquí</a>.</p>
+        </body>
+        </html>' > index.html
+
+    - name: Commit and push HTML
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add index.html
+        if git diff-index --quiet HEAD --; then
+          echo "No hay cambios para commitear"
+        else
+          git commit -m "Auto-generated HTML redirect to Dash app [skip ci]"
+          git push
+        fi
